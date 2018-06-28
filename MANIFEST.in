@@ -1,0 +1,3 @@
+include README.md
+recursive-include octoprint_shooting/templates *
+recursive-include octoprint_shooting/static *
