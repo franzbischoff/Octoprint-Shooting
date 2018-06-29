@@ -22,13 +22,14 @@ import octoprint.plugin
 
 class ShootingPlugin(octoprint.plugin.SettingsPlugin,
                      octoprint.plugin.AssetPlugin,
-                     octoprint.plugin.TemplatePlugin):
+                     octoprint.plugin.TemplatePlugin,
+                     octoprint.plugin.StartupPlugin):
 
-	##~~ SettingsPlugin mixin
+    ##~~ SettingsPlugin mixin
 
-	def get_settings_defaults(self):
-		return dict(
-			# put your plugin's default settings here
+    def get_settings_defaults(self):
+        return dict(
+            # put your plugin's default settings here
 
             # rpi_outputs=[],
             # rpi_inputs=[],
@@ -56,44 +57,46 @@ class ShootingPlugin(octoprint.plugin.SettingsPlugin,
             # notification_event_name="printer_event",
             # notifications=[{'printFinish': True, 'filamentChange': True,
             #                 'printer_action': True, 'temperatureAction': True, 'gpioAction': True}]
-		)
+        )
 
-	##~~ AssetPlugin mixin
+    ##~~ AssetPlugin mixin
 
-	def get_assets(self):
-		# Define your plugin's asset files to automatically include in the
-		# core UI here.
-		return dict(
-			js=["js/shooting.js"],
-			css=["css/shooting.css"],
-			less=["less/shooting.less"]
+    def get_assets(self):
+        # Define your plugin's asset files to automatically include in the
+        # core UI here.
+        return dict(
+            js=["js/shooting.js"],
+            css=["css/shooting.css"],
+            less=["less/shooting.less"]
 
             # js=["js/enclosure.js", "js/bootstrap-colorpicker.min.js"],
             # css=["css/bootstrap-colorpicker.css", "css/enclosure.css"]
-		)
+        )
 
-	##~~ Softwareupdate hook
+    ##~~ Softwareupdate hook
 
-	def get_update_information(self):
-		# Define the configuration for your plugin to use with the Software Update
-		# Plugin here. See https://github.com/foosel/OctoPrint/wiki/Plugin:-Software-Update
-		# for details.
-		return dict(
-			shooting=dict(
-				displayName="Shooting Plugin",
-				displayVersion=self._plugin_version,
+    def get_update_information(self):
+        # Define the configuration for your plugin to use with the Software Update
+        # Plugin here. See https://github.com/foosel/OctoPrint/wiki/Plugin:-Software-Update
+        # for details.
+        return dict(
+            shooting=dict(
+                displayName="Shooting Plugin",
+                displayVersion=self._plugin_version,
 
-				# version check: github repository
-				type="github_release",
-				user="franzbischoff",
-				repo="OctoPrint-Shooting",
-				current=self._plugin_version,
+                # version check: github repository
+                type="github_release",
+                user="franzbischoff",
+                repo="OctoPrint-Shooting",
+                current=self._plugin_version,
 
-				# update method: pip
-				pip="https://github.com/franzbischoff/OctoPrint-Shooting/archive/{target_version}.zip"
-			)
-		)
+                # update method: pip
+                pip="https://github.com/franzbischoff/OctoPrint-Shooting/archive/{target_version}.zip"
+            )
+        )
 
+    def on_after_startup(self):
+        self._logger.info("Shooting is here!")
 
 # If you want your plugin to be registered within OctoPrint under a different name than what you defined in setup.py
 # ("OctoPrint-PluginSkeleton"), you may define that here. Same goes for the other metadata derived from setup.py that
@@ -101,10 +104,10 @@ class ShootingPlugin(octoprint.plugin.SettingsPlugin,
 __plugin_name__ = "Shooting Plugin"
 
 def __plugin_load__():
-	global __plugin_implementation__
-	__plugin_implementation__ = ShootingPlugin()
+    global __plugin_implementation__
+    __plugin_implementation__ = ShootingPlugin()
 
-	global __plugin_hooks__
-	__plugin_hooks__ = {
-		"octoprint.plugin.softwareupdate.check_config": __plugin_implementation__.get_update_information
-	}
+    global __plugin_hooks__
+    __plugin_hooks__ = {
+        "octoprint.plugin.softwareupdate.check_config": __plugin_implementation__.get_update_information
+    }
