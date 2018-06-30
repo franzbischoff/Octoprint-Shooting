@@ -1,6 +1,11 @@
 # coding=utf-8
 from __future__ import absolute_import
 
+import flask
+
+import octoprint.plugin
+
+
 # from octoprint.events import eventManager, Events
 # from octoprint.util import RepeatedTimer
 # from subprocess import Popen, PIPE
@@ -18,18 +23,20 @@ from __future__ import absolute_import
 # import threading
 # import json
 
-import octoprint.plugin
 
-class ShootingPlugin(octoprint.plugin.SettingsPlugin,
+class ShootingPlugin(octoprint.plugin.SettingsPlugin,  # self._settings (instance of PluginSettingsManager)
                      octoprint.plugin.AssetPlugin,
                      octoprint.plugin.TemplatePlugin,
-                     octoprint.plugin.StartupPlugin):
+                     octoprint.plugin.StartupPlugin,
+                     octoprint.plugin.BlueprintPlugin,
+                     octoprint.plugin.EventHandlerPlugin):
 
-    ##~~ SettingsPlugin mixin
+    # ~~ SettingsPlugin mixin
 
     def get_settings_defaults(self):
         return dict(
             # put your plugin's default settings here
+            url="https://en.wikipedia.org/wiki/Hello_world"
 
             # rpi_outputs=[],
             # rpi_inputs=[],
@@ -59,21 +66,50 @@ class ShootingPlugin(octoprint.plugin.SettingsPlugin,
             #                 'printer_action': True, 'temperatureAction': True, 'gpioAction': True}]
         )
 
-    ##~~ AssetPlugin mixin
+    def get_settings_version(self):
+        return 1
+
+    # def on_settings_migrate(self, target, current):
+    #     assert target == get_settings_version()
+
+    # ~~ AssetPlugin mixin
 
     def get_assets(self):
-        # Define your plugin's asset files to automatically include in the
-        # core UI here.
         return dict(
-            js=["js/shooting.js"],
+            js=["js/shooting.js", "js/plotly-latest.min.js"],
             css=["css/shooting.css"],
             less=["less/shooting.less"]
-
-            # js=["js/enclosure.js", "js/bootstrap-colorpicker.min.js"],
-            # css=["css/bootstrap-colorpicker.css", "css/enclosure.css"]
         )
 
-    ##~~ Softwareupdate hook
+    # ~~ TemplatePlugin mixin
+
+    def get_template_configs(self):
+        return [
+            dict(type="navbar", custom_bindings=True),
+            dict(type="tab", name="Shooting", custom_bindings=True),
+            dict(type="settings", name="Shooting", custom_bindings=False)
+        ]
+
+    # ~~ StartupPlugin mixin
+
+    def on_after_startup(self):
+        self._logger.info("Shooting is here!")
+
+    # ~~ BlueprintPlugin mixin
+
+    @octoprint.plugin.BlueprintPlugin.route("/echo", methods=["GET"])
+    def myEcho(self):
+        if "text" not in flask.request.values:
+            return flask.make_response("Expected a text to echo back.", 400)
+        return flask.request.values["text"]
+
+    # ~~ EventHandlerPlugin mixin
+
+    def on_event(self, event, payload):
+        if event == Events.CONNECTED:
+            self.update_ui()
+
+    # ~~ Softwareupdate hook
 
     def get_update_information(self):
         # Define the configuration for your plugin to use with the Software Update
@@ -95,13 +131,17 @@ class ShootingPlugin(octoprint.plugin.SettingsPlugin,
             )
         )
 
-    def on_after_startup(self):
-        self._logger.info("Shooting is here!")
+        # ~~ octoprint.comm.protocol.atcommand.<phase> hook; @ commands (https://goo.gl/wXmgvt)
+        # ~~ octoprint.comm.protocol.gcode.<phase> hook; read from file and sent gcode do printer (https://goo.gl/at8fEo)
+        # ~~ octoprint.comm.protocol.gcode.received hook; read responses from printer (https://goo.gl/hTFcHY)
+        # ~~ octoprint.comm.protocol.gcode.error hook; read error messages from printer (https://goo.gl/49XcDd)
+
 
 # If you want your plugin to be registered within OctoPrint under a different name than what you defined in setup.py
 # ("OctoPrint-PluginSkeleton"), you may define that here. Same goes for the other metadata derived from setup.py that
 # can be overwritten via __plugin_xyz__ control properties. See the documentation for that.
 __plugin_name__ = "Shooting Plugin"
+
 
 def __plugin_load__():
     global __plugin_implementation__

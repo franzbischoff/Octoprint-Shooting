@@ -1,1 +1,11 @@
-// TODO: Put your plugin's LESS here, have it generated to ../css.
+// Declaring variables
+@border-width: 1px;
+@gray: #808080;
+@height: 800px;
+@width: 100%;
+
+#tab_plugin_shooting iframe {
+    width: @width;
+    height: @height;
+    border: @border-width solid @gray;
+}

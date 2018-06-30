@@ -18,11 +18,12 @@ Code based on:
 
 """
 
-import smbus
-import time
-import ctypes
 import csv
+import ctypes
 import sys
+import time
+
+import smbus
 
 if len(sys.argv) == 2:
     log_file = sys.argv[1]
@@ -31,7 +32,6 @@ else:
 
 
 class mpu6050:
-
     # Global Variables
     GRAVITIY_MS2 = 9.80665
     address = None
@@ -565,7 +565,7 @@ if __name__ == "__main__":
 
         # If overflow is detected by status or fifo count we want to reset
         if (FIFO_count == 1024) or (
-                mpu_int_status & mpu.INT_ENABLE_FIFO_OFLOW_INT):
+            mpu_int_status & mpu.INT_ENABLE_FIFO_OFLOW_INT):
             mpu.reset_user_ctrl_FIFO()
             print('OVERFLOW: FIFO count: ' + str(FIFO_count) + ' Int: ' +
                   str(mpu_int_status))
