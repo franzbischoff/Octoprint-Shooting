@@ -1,10 +1,11 @@
+# @todo: Read gcode from file
+# @todo: Parse custom commands from gcode file
+# @todo: Start-Stop MPU readings
+# @todo: Store readings on file
+# @todo: Plot readings on Octoprint Tab
+
 # coding=utf-8
 from __future__ import absolute_import
-
-import flask
-
-import octoprint.plugin
-
 
 # from octoprint.events import eventManager, Events
 # from octoprint.util import RepeatedTimer
@@ -22,6 +23,9 @@ import octoprint.plugin
 # import inspect
 # import threading
 # import json
+import octoprint.plugin
+from octoprint.events import Events
+from octoprint.server.util import flask
 
 
 class ShootingPlugin(octoprint.plugin.SettingsPlugin,  # self._settings (instance of PluginSettingsManager)

@@ -1,5 +1,5 @@
-#tab_plugin_shooting iframe {
+#tab_plugin_shooting #plotLy {
   width: 100%;
   height: 800px;
-  border: 1px solid #808080;
+  border: 0px solid #808080;
 }

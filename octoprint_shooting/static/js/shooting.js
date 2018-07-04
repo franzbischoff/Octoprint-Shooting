@@ -4,6 +4,7 @@
 * Author: Francisco Bischoff
 * License: AGPLv3
 */
+
 $(function () {
     function ShootingViewModel(parameters) {
         var self = this;
@@ -14,8 +15,12 @@ $(function () {
         self.settingsViewModel = parameters[0];
 
         self.currentUrl = ko.observable();
+        self.plot = null; // plotly graph
+        self.defaultColors = {
+            background: '#ffffff',
+            axises: '#000000'
+        }
 
-        // this will be called when the user clicks the "Go" button and set the iframe's URL to the entered URL
         self.bindFromSettings = function () {
             self.rpi_outputs(self.settingsViewModel.settings.plugins.enclosure.rpi_outputs());
             self.rpi_inputs(self.settingsViewModel.settings.plugins.enclosure.rpi_inputs());
@@ -54,6 +59,66 @@ $(function () {
         // Called after the startup of the web app has been completed.
         self.onStartupComplete = function () {
             self.settingsOpen = false;
+
+            self.plot = document.getElementById("plotLy");
+
+            // data [{},{}]
+            data = [{
+                type: 'scatter',
+                x: [1, 2, 3, 4, 5],
+                y: [1, 2, 4, 8, 16],
+                name: 'data',
+                marker: {         // marker is an object, valid marker keys: #scatter-marker
+                    color: 'rgb(255, 0, 0)' // more about "marker.color": #scatter-marker-color
+                }
+            }];
+
+            layout = {
+                title: 'Simple Chart',
+                xaxis: {
+                    title: 'time',
+                    type: 'linear',
+                    rangemode: 'nonnegative',
+                    showgrid: true,
+                    zeroline: false,
+                    linecolor: 'gray',
+                    linewidth: 1,
+                    mirror: true,
+                    color: self.defaultColors.axises
+                },
+                yaxis: {
+                    title: 'acceleration (m/s' + '2'.sup() + ')',
+                    type: 'linear',
+                    linecolor: 'gray',
+                    linewidth: 1,
+                    mirror: true,
+                    color: self.defaultColors.axises
+                },
+                autosize: true,
+                height: self.plot.clientHeight,
+                width: 588, //self.plot.clientWidth,
+                margin: {l: 50, r: 30, b: 50, t: 30},
+                showlegend: true,
+                hovermode: 'x',
+                paper_bgcolor: self.defaultColors.background,
+                plot_bgcolor: self.defaultColors.background
+            };
+
+            Plotly.plot(self.plot, data, layout);
+
+            // // update plot
+            // if (self.plot) {
+            //     var tracesToUpdate = []; // [0,1,2,3,...]
+            //     for (var i = 0; i < newData.x.length; i++) {
+            //         tracesToUpdate.push(i);
+            //     }
+            //
+            //     // update layout
+            //     Plotly.extendTraces(self.plot, newData, tracesToUpdate, result.length)
+            // }
+
+            // change colors, etc
+            // Plotly.relayout(self.plot, relayout);
         }
 
         // Called if a disconnect from the server is detected.
