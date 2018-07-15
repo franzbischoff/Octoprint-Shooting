@@ -20,22 +20,18 @@ Code based on:
 
 import csv
 import ctypes
-import sys
+import threading
 import time
 
 import smbus
 
-if len(sys.argv) == 2:
-    log_file = sys.argv[1]
-else:
-    log_file = 0
 
-
-class mpu6050:
+class mpu6050(threading.Thread):
     # Global Variables
     GRAVITIY_MS2 = 9.80665
     address = None
     bus = None
+    capturingData = False
 
     # Scale Modifiers
     ACCEL_SCALE_MODIFIER_2G = 16384.0
@@ -155,9 +151,116 @@ class mpu6050:
     FIFO_R_W = 0x74  # FIFO data register
 
     def __init__(self, address, bus=1):
+        # Set up mpu6050
         self.address = address
         self.bus = smbus.SMBus(bus)
         self.wake_up()
+
+        # set up thread
+        threading.Thread.__init__(self)
+        self.name = "MPU6050 Module"
+
+    def run(self):
+        print("Starting " + self.name)
+        self.capturingData = True
+        self.start_capture()
+        print("Exiting " + self.name)
+
+    def start_capture(self):
+
+        if not self.capturingData:
+            return
+
+        packet_size = 12  # 2 for each GX GY GZ X Y Z
+        log_file = "mpu6050_" + time.strftime("%Y%m%d-%H%M%S", time.localtime()) + ".csv"
+
+        log_fd = open(log_file, 'wb')
+        csv_writer = csv.writer(log_fd, delimiter=',', quotechar='|', quoting=csv.QUOTE_MINIMAL)
+
+        # FIFO stuff
+        self.reset_user_ctrl_FIFO()  # reset FIFO
+        self.set_int_enable(self.INT_ENABLE_FIFO_OFLOW_INT)  # interrupt when data overflow
+        self.set_FIFO_config(self.FIFO_EN_ACCEL_BIT, 1)  # use FIFO for accel
+        self.set_FIFO_config(self.FIFO_EN_ZG_BIT, 1)  # use FIFO for Gyro Z
+        self.set_FIFO_config(self.FIFO_EN_YG_BIT, 1)  # use FIFO for Gyro Y
+        self.set_FIFO_config(self.FIFO_EN_XG_BIT, 1)  # use FIFO for Gyro X
+        self.set_user_ctrl_FIFO_enable()  # enable using FIFO
+
+        # Your offsets:	2348	635  	1776	 54	  49	 -27
+        #                acelX acelY acelZ giroX giroY giroZ
+        # other configs
+        self.set_x_accel_offset(2354)
+        self.set_y_accel_offset(640)
+        self.set_z_accel_offset(1779)
+        self.set_x_gyro_offset(15)
+        self.set_y_gyro_offset(46)
+        self.set_z_gyro_offset(-25)
+        self.set_accel_range(self.ACCEL_RANGE_2G)  # set 2G for maximal sensibility
+        self.set_gyro_range(self.GYRO_RANGE_250DEG)  # set 250DEG for maximal sensibility
+        self.set_DLF_mode(self.DLPF_BW_44)  # digital low-pass filter
+        self.set_rate(10)  # (1khz / 10) = 100 hz
+
+        start_time = time.clock()
+
+        while self.capturingData:
+            FIFO_count = self.get_FIFO_count()
+            mpu_int_status = self.get_int_status()
+
+            # If overflow is detected by status or fifo count we want to reset
+            if (FIFO_count == 1024) or (mpu_int_status & self.INT_ENABLE_FIFO_OFLOW_INT):
+                self.reset_user_ctrl_FIFO()
+                print('OVERFLOW: FIFO count: ' + str(FIFO_count) + ' Int: ' + str(mpu_int_status))
+            else:
+                while FIFO_count < packet_size:
+                    print('FIFO count: ' + str(FIFO_count))
+                    FIFO_count = self.get_FIFO_count()
+
+                while FIFO_count > packet_size:
+                    # self._logger.info('FIFO count2: ' + str(FIFO_count))
+                    FIFO_buffer = self.get_FIFO_bytes(packet_size)
+                    acc_x = ctypes.c_int16((FIFO_buffer[0] << 8) + FIFO_buffer[1]).value
+                    acc_y = ctypes.c_int16((FIFO_buffer[2] << 8) + FIFO_buffer[3]).value
+                    acc_z = ctypes.c_int16((FIFO_buffer[4] << 8) + FIFO_buffer[5]).value
+                    acc_x /= self.ACCEL_SCALE_MODIFIER_2G
+                    acc_y /= self.ACCEL_SCALE_MODIFIER_2G
+                    acc_z /= self.ACCEL_SCALE_MODIFIER_2G
+                    acc_x *= self.GRAVITIY_MS2
+                    acc_y *= self.GRAVITIY_MS2
+                    acc_z *= self.GRAVITIY_MS2
+                    gyro_x = ctypes.c_int16((FIFO_buffer[6] << 8) + FIFO_buffer[7]).value
+                    gyro_y = ctypes.c_int16((FIFO_buffer[8] << 8) + FIFO_buffer[9]).value
+                    gyro_z = ctypes.c_int16((FIFO_buffer[10] << 8) + FIFO_buffer[11]).value
+                    gyro_x /= self.GYRO_SCALE_MODIFIER_250DEG
+                    gyro_y /= self.GYRO_SCALE_MODIFIER_250DEG
+                    gyro_z /= self.GYRO_SCALE_MODIFIER_250DEG
+
+                    print('X: %3.5f Y: %3.5f Z: %3.5f, GX: %3.5f, GY: %3.5f, GZ: %3.5f' %
+                                      (acc_x, acc_y, acc_z, gyro_x, gyro_y, gyro_z))
+
+                    delta_time = (time.clock() - start_time) * 10
+                    data_concat = [
+                        '%.3f' % delta_time,
+                        '%.5f' % acc_x,
+                        '%.5f' % acc_y,
+                        '%.5f' % acc_z,
+                        '%.5f' % gyro_x,
+                        '%.5f' % gyro_y,
+                        '%.5f' % gyro_z
+                    ]
+                    csv_writer.writerow(data_concat)
+
+                    FIFO_count -= packet_size
+
+                    # safety exit if more than 60 seconds recording
+                    if(delta_time > 60):
+                        self.capturingData=False
+
+        if log_fd:
+            log_fd.close()
+
+
+    def stop(self):
+        self.capturingData=False
 
     # Core bit and byte operations
     def read_bit(self, address, bit_position):
@@ -519,101 +622,9 @@ class mpu6050:
 
         return [accel, gyro, temp]
 
-
 if __name__ == "__main__":
     mpu = mpu6050(0x68)
-    FIFO_buffer = list()
-    packet_size = 12  # 2 for each GX GY GZ X Y Z
 
-    if log_file != 0:
-        log_fd = open(log_file, 'wb')
-        csv_writer = csv.writer(
-            log_fd, delimiter=',', quotechar='|', quoting=csv.QUOTE_MINIMAL)
-
-    # FIFO stuff
-    mpu.reset_user_ctrl_FIFO()  # reset FIFO
-    mpu.set_int_enable(
-        mpu.INT_ENABLE_FIFO_OFLOW_INT)  # interrupt when data overflow
-    mpu.set_FIFO_config(mpu.FIFO_EN_ACCEL_BIT, 1)  # use FIFO for accel
-    mpu.set_FIFO_config(mpu.FIFO_EN_ZG_BIT, 1)  # use FIFO for Gyro Z
-    mpu.set_FIFO_config(mpu.FIFO_EN_YG_BIT, 1)  # use FIFO for Gyro Y
-    mpu.set_FIFO_config(mpu.FIFO_EN_XG_BIT, 1)  # use FIFO for Gyro X
-    mpu.set_user_ctrl_FIFO_enable()  # enable using FIFO
-
-    # Your offsets:	2348	635  	1776	 54	  49	 -27
-    #                acelX acelY acelZ giroX giroY giroZ
-    # other configs
-    mpu.set_x_accel_offset(2354)
-    mpu.set_y_accel_offset(640)
-    mpu.set_z_accel_offset(1779)
-    mpu.set_x_gyro_offset(15)
-    mpu.set_y_gyro_offset(46)
-    mpu.set_z_gyro_offset(-25)
-    mpu.set_accel_range(mpu.ACCEL_RANGE_2G)  # set 2G for maximal sensibility
-    mpu.set_gyro_range(
-        mpu.GYRO_RANGE_250DEG)  # set 250DEG for maximal sensibility
-    mpu.set_DLF_mode(mpu.DLPF_BW_44)  # digital low-pass filter
-    mpu.set_rate(10)  # (1khz / 10) = 100 hz
-
-    exit = False
-
-    start_time = time.clock()
-
-    while exit == False:
-        FIFO_count = mpu.get_FIFO_count()
-        mpu_int_status = mpu.get_int_status()
-
-        # If overflow is detected by status or fifo count we want to reset
-        if (FIFO_count == 1024) or (
-            mpu_int_status & mpu.INT_ENABLE_FIFO_OFLOW_INT):
-            mpu.reset_user_ctrl_FIFO()
-            print('OVERFLOW: FIFO count: ' + str(FIFO_count) + ' Int: ' +
-                  str(mpu_int_status))
-        else:
-            while FIFO_count < packet_size:
-                print('FIFO count: ' + str(FIFO_count))
-                FIFO_count = mpu.get_FIFO_count()
-
-            while FIFO_count > packet_size:
-                # print('FIFO count2: ' + str(FIFO_count))
-                FIFO_buffer = mpu.get_FIFO_bytes(packet_size)
-                acc_x = ctypes.c_int16(
-                    (FIFO_buffer[0] << 8) + FIFO_buffer[1]).value
-                acc_y = ctypes.c_int16(
-                    (FIFO_buffer[2] << 8) + FIFO_buffer[3]).value
-                acc_z = ctypes.c_int16(
-                    (FIFO_buffer[4] << 8) + FIFO_buffer[5]).value
-                acc_x /= mpu.ACCEL_SCALE_MODIFIER_2G
-                acc_y /= mpu.ACCEL_SCALE_MODIFIER_2G
-                acc_z /= mpu.ACCEL_SCALE_MODIFIER_2G
-                acc_x *= mpu.GRAVITIY_MS2
-                acc_y *= mpu.GRAVITIY_MS2
-                acc_z *= mpu.GRAVITIY_MS2
-                gyro_x = ctypes.c_int16(
-                    (FIFO_buffer[6] << 8) + FIFO_buffer[7]).value
-                gyro_y = ctypes.c_int16(
-                    (FIFO_buffer[8] << 8) + FIFO_buffer[9]).value
-                gyro_z = ctypes.c_int16(
-                    (FIFO_buffer[10] << 8) + FIFO_buffer[11]).value
-                gyro_x /= mpu.GYRO_SCALE_MODIFIER_250DEG
-                gyro_y /= mpu.GYRO_SCALE_MODIFIER_250DEG
-                gyro_z /= mpu.GYRO_SCALE_MODIFIER_250DEG
-
-                print(
-                    'X: %3.5f Y: %3.5f Z: %3.5f, GX: %3.5f, GY: %3.5f, GZ: %3.5f'
-                    % (acc_x, acc_y, acc_z, gyro_x, gyro_y, gyro_z))
-
-                if log_file != 0:
-                    delta_time = (time.clock() - start_time) * 10
-                    data_concat = [
-                        '%.3f' % delta_time,
-                        '%.5f' % acc_x,
-                        '%.5f' % acc_y,
-                        '%.5f' % acc_z,
-                        '%.5f' % gyro_x,
-                        '%.5f' % gyro_y,
-                        '%.5f' % gyro_z
-                    ]
-                    csv_writer.writerow(data_concat)
-
-                FIFO_count -= packet_size
+    mpu.start()
+    time.sleep(5)
+    mpu.capturingData=False
