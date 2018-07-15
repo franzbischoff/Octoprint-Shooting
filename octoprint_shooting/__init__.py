@@ -7,12 +7,6 @@
 # coding=utf-8
 from __future__ import absolute_import
 
-# from octoprint.events import eventManager, Events
-# from octoprint.util import RepeatedTimer
-# from subprocess import Popen, PIPE
-# import RPi.GPIO as GPIO
-# import flask
-# import time
 # import sys
 # import glob
 # import os
@@ -23,51 +17,37 @@ from __future__ import absolute_import
 # import inspect
 # import threading
 # import json
+import io
+import time
 import octoprint.plugin
+from lib.mpu6050 import mpu6050
 from octoprint.events import Events
 from octoprint.server.util import flask
 
 
-class ShootingPlugin(octoprint.plugin.SettingsPlugin,  # self._settings (instance of PluginSettingsManager)
+# from octoprint.events import eventManager, Events
+# from octoprint.util import RepeatedTimer
+# from subprocess import Popen, PIPE
+# import RPi.GPIO as GPIO
+# import flask
+
+
+class ShootingPlugin(octoprint.plugin.SettingsPlugin,
                      octoprint.plugin.AssetPlugin,
                      octoprint.plugin.TemplatePlugin,
                      octoprint.plugin.StartupPlugin,
                      octoprint.plugin.BlueprintPlugin,
                      octoprint.plugin.EventHandlerPlugin):
 
+    capturing_vibration=False
+    script_file="vibration_test_1"
+
     # ~~ SettingsPlugin mixin
 
     def get_settings_defaults(self):
         return dict(
             # put your plugin's default settings here
-            url="https://en.wikipedia.org/wiki/Hello_world"
-
-            # rpi_outputs=[],
-            # rpi_inputs=[],
-            # filament_sensor_gcode="G91  ;Set Relative Mode \n" +
-            # "G1 E-5.000000 F500 ;Retract 5mm\n" +
-            # "G1 Z15 F300         ;move Z up 15mm\n" +
-            # "G90            ;Set Absolute Mode\n " +
-            # "G1 X20 Y20 F9000      ;Move to hold position\n" +
-            # "G91            ;Set Relative Mode\n" +
-            # "G1 E-40 F500      ;Retract 40mm\n" +
-            # "M0            ;Idle Hold\n" +
-            # "G90            ;Set Absolute Mode\n" +
-            # "G1 F5000         ;Set speed limits\n" +
-            # "G28 X0 Y0         ;Home X Y\n" +
-            # "M82            ;Set extruder to Absolute Mode\n" +
-            # "G92 E0         ;Set Extruder to 0",
-            # use_sudo=True,
-            # neopixel_dma=10,
-            # debug=False,
-            # gcode_control=False,
-            # debug_temperature_log=False,
-            # use_board_pin_number=False,
-            # notification_provider="disabled",
-            # notification_api_key="",
-            # notification_event_name="printer_event",
-            # notifications=[{'printFinish': True, 'filamentChange': True,
-            #                 'printer_action': True, 'temperatureAction': True, 'gpioAction': True}]
+            script_file="vibration_test_1"
         )
 
     def get_settings_version(self):
@@ -113,7 +93,7 @@ class ShootingPlugin(octoprint.plugin.SettingsPlugin,  # self._settings (instanc
         if event == Events.CONNECTED:
             self.update_ui()
 
-    # ~~ Softwareupdate hook
+    # ~~ octoprint hooks
 
     def get_update_information(self):
         # Define the configuration for your plugin to use with the Software Update
@@ -135,11 +115,90 @@ class ShootingPlugin(octoprint.plugin.SettingsPlugin,  # self._settings (instanc
             )
         )
 
+    def atcommand_handler_hook(self, comm, phase, command, parameters, tags=None, *args, **kwargs):
+
+        self._logger.info("Command received {command}.".format(command=command))
+
+        if command == "start":
+            self.start_gcode(self.script_file + ".gcode")
+            return
+
+        if command != "MPU6080":
+            return
+
+        if parameters is None:
+            parameters = set()
+
+        if "START" in parameters:
+            self.start_capture_vibration()
+            self._logger.info("Parameter \"{}\" received.".format(parameters))  # todo: implement start mpu6080 method
+
+        if "STOP" in parameters:
+            self.stop_capture_vibration()
+            self._logger.info("Parameter \"{}\" received.".format(parameters))  # todo: implement stop mpu6080 method
+
+        if tags is None:
+            tags = set()
+
+    def printer_message_received_hook(self, comm, line, *args, **kwargs):
+        if "FIRMWARE_NAME" not in line:
+            return line
+
+        from octoprint.util.comm import parse_firmware_line
+
+        # Create a dict with all the keys/values returned by the M115 request
+        printer_data = parse_firmware_line(line)
+
+        self._logger.info("Firmware Name detected: {machine}.".format(machine=printer_data["FIRMWARE_NAME"]))
+
+        return line
+
+    def printer_error_hook(self, comm, error_message, *args, **kwargs):
+        _HANDLED_ERRORS = ('fan error', 'bed missing')
+
+        lower_error = error_message.lower()
+        if any(map(lambda x: x in lower_error, _HANDLED_ERRORS)):
+            self._logger.info("Error \"{}\" is handled by this plugin".format(error_message))
+            return True
+
         # ~~ octoprint.comm.protocol.atcommand.<phase> hook; @ commands (https://goo.gl/wXmgvt)
         # ~~ octoprint.comm.protocol.gcode.<phase> hook; read from file and sent gcode do printer (https://goo.gl/at8fEo)
         # ~~ octoprint.comm.protocol.gcode.received hook; read responses from printer (https://goo.gl/hTFcHY)
         # ~~ octoprint.comm.protocol.gcode.error hook; read error messages from printer (https://goo.gl/49XcDd)
 
+    # ~~ Shooting functions
+
+    def start_gcode(self, filename):
+
+        # @todo: if printer is idle and ready
+
+        # @todo: check if @commands are sync with movement
+        path = self._basefolder + "/scripts/" + filename
+        self._logger.info("Franz: print file base: \"{}\".".format(path))
+
+        file = io.open(path, 'rt', encoding='utf8')
+
+        for line in file:
+            self._printer.commands(line.strip().upper())
+            self._logger.info("Sending GCODE command: %s", line.strip().upper())
+            time.sleep(0.2)
+
+        file.close()
+
+    def start_capture_vibration(self):
+        self.mpu = mpu6050(0x68, logger=self._logger, basefolder=self._basefolder)
+        self.mpu.start()
+
+    def stop_capture_vibration(self):
+        if self.mpu:
+            self.mpu.capturingData = False
+
+
+    def update_ui(self):
+        self.update_ui_current_temperature()
+
+    def update_ui_current_temperature(self):
+        self._plugin_manager.send_plugin_message(self._identifier, dict(sensor_data=self.temperature_sensor_data))
 
 # If you want your plugin to be registered within OctoPrint under a different name than what you defined in setup.py
 # ("OctoPrint-PluginSkeleton"), you may define that here. Same goes for the other metadata derived from setup.py that
@@ -153,5 +212,8 @@ def __plugin_load__():
 
     global __plugin_hooks__
     __plugin_hooks__ = {
-        "octoprint.plugin.softwareupdate.check_config": __plugin_implementation__.get_update_information
+        "octoprint.plugin.softwareupdate.check_config": __plugin_implementation__.get_update_information,
+        "octoprint.comm.protocol.atcommand.sending": __plugin_implementation__.atcommand_handler_hook,
+        "octoprint.comm.protocol.gcode.received": __plugin_implementation__.printer_message_received_hook,
+        "octoprint.comm.protocol.gcode.error": __plugin_implementation__.printer_error_hook
     }

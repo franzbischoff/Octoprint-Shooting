@@ -32,6 +32,8 @@ class mpu6050(threading.Thread):
     address = None
     bus = None
     capturingData = False
+    logger=None
+    basefolder="."
 
     # Scale Modifiers
     ACCEL_SCALE_MODIFIER_2G = 16384.0
@@ -150,32 +152,49 @@ class mpu6050(threading.Thread):
     FIFO_COUNT = 0x72  # 16-bit value
     FIFO_R_W = 0x74  # FIFO data register
 
-    def __init__(self, address, bus=1):
+    def __init__(self, address, bus=1, logger=None, basefolder=None):
         # Set up mpu6050
         self.address = address
         self.bus = smbus.SMBus(bus)
         self.wake_up()
+        self.logger = logger
+        if self.basefolder is not None:
+            self.basefolder=basefolder
 
         # set up thread
         threading.Thread.__init__(self)
         self.name = "MPU6050 Module"
 
+        self.log("__init__")
+
+    def log(self, message):
+        if self.logger is None:
+            print(message)
+        else:
+            self.logger.info(message)
+
     def run(self):
-        print("Starting " + self.name)
+        self.log("Starting " + self.name)
         self.capturingData = True
         self.start_capture()
-        print("Exiting " + self.name)
+        self.log("Exiting " + self.name)
 
     def start_capture(self):
+
+        self.log("Start Capture")
 
         if not self.capturingData:
             return
 
+        self.log("Opening logfile2")
+
         packet_size = 12  # 2 for each GX GY GZ X Y Z
-        log_file = "mpu6050_" + time.strftime("%Y%m%d-%H%M%S", time.localtime()) + ".csv"
+        log_file = self.basefolder + "/mpu6050_" + time.strftime("%Y%m%d-%H%M%S", time.localtime()) + ".csv"
 
         log_fd = open(log_file, 'wb')
         csv_writer = csv.writer(log_fd, delimiter=',', quotechar='|', quoting=csv.QUOTE_MINIMAL)
+
+        self.log("Logfile opened")
 
         # FIFO stuff
         self.reset_user_ctrl_FIFO()  # reset FIFO
@@ -202,6 +221,8 @@ class mpu6050(threading.Thread):
 
         start_time = time.clock()
 
+        self.log("Begin while")
+
         while self.capturingData:
             FIFO_count = self.get_FIFO_count()
             mpu_int_status = self.get_int_status()
@@ -209,10 +230,10 @@ class mpu6050(threading.Thread):
             # If overflow is detected by status or fifo count we want to reset
             if (FIFO_count == 1024) or (mpu_int_status & self.INT_ENABLE_FIFO_OFLOW_INT):
                 self.reset_user_ctrl_FIFO()
-                print('OVERFLOW: FIFO count: ' + str(FIFO_count) + ' Int: ' + str(mpu_int_status))
+                self.log('OVERFLOW: FIFO count: ' + str(FIFO_count) + ' Int: ' + str(mpu_int_status))
             else:
                 while FIFO_count < packet_size:
-                    print('FIFO count: ' + str(FIFO_count))
+                    self.log('FIFO count: ' + str(FIFO_count))
                     FIFO_count = self.get_FIFO_count()
 
                 while FIFO_count > packet_size:
@@ -234,7 +255,7 @@ class mpu6050(threading.Thread):
                     gyro_y /= self.GYRO_SCALE_MODIFIER_250DEG
                     gyro_z /= self.GYRO_SCALE_MODIFIER_250DEG
 
-                    print('X: %3.5f Y: %3.5f Z: %3.5f, GX: %3.5f, GY: %3.5f, GZ: %3.5f' %
+                    self.log('X: %3.5f Y: %3.5f Z: %3.5f, GX: %3.5f, GY: %3.5f, GZ: %3.5f' %
                                       (acc_x, acc_y, acc_z, gyro_x, gyro_y, gyro_z))
 
                     delta_time = (time.clock() - start_time) * 10
@@ -529,7 +550,7 @@ class mpu6050(threading.Thread):
         elif accel_range == self.ACCEL_RANGE_16G:
             accel_scale_modifier = self.ACCEL_SCALE_MODIFIER_16G
         else:
-            print(
+            self.log(
                 "Unkown range - accel_scale_modifier set to self.ACCEL_SCALE_MODIFIER_2G"
             )
             accel_scale_modifier = self.ACCEL_SCALE_MODIFIER_2G
@@ -603,7 +624,7 @@ class mpu6050(threading.Thread):
         elif gyro_range == self.GYRO_RANGE_2000DEG:
             gyro_scale_modifier = self.GYRO_SCALE_MODIFIER_2000DEG
         else:
-            print(
+            self.log(
                 "Unkown range - gyro_scale_modifier set to self.GYRO_SCALE_MODIFIER_250DEG"
             )
             gyro_scale_modifier = self.GYRO_SCALE_MODIFIER_250DEG
