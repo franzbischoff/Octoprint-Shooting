@@ -11,15 +11,51 @@ G1 X125 ; Center on X
 G1 Y0
 G1 Y105
 M400 ; Wait finishing movements
-@mpu6080 start ; Start recording
+@MPU6050 START ; Start recording
 
 G1 Y210 ; back to front pass
+G1 Y0   ; front to back pass
+G1 Y210 ; end of pass
+G1 Y0   ; front to back pass
+G1 Y210 ; end of pass
+G1 Y0   ; front to back pass
+G1 Y210 ; end of pass
+G1 Y0   ; front to back pass
+G1 Y210 ; end of pass
+G1 Y0   ; front to back pass
+G1 Y210 ; end of pass
+G1 Y0   ; front to back pass
+G1 Y210 ; end of pass
+G1 Y0   ; front to back pass
+G1 Y210 ; end of pass
+G1 Y0   ; front to back pass
+G1 Y210 ; end of pass
+G1 Y0   ; front to back pass
+G1 Y210 ; end of pass
+G1 Y0   ; front to back pass
+G1 Y210 ; end of pass
+G1 Y0   ; front to back pass
+G1 Y210 ; end of pass
+G1 Y0   ; front to back pass
+G1 Y210 ; end of pass
+G1 Y0   ; front to back pass
+G1 Y210 ; end of pass
+G1 Y0   ; front to back pass
+G1 Y210 ; end of pass
+G1 Y0   ; front to back pass
+G1 Y210 ; end of pass
+G1 Y0   ; front to back pass
+G1 Y210 ; end of pass
+G1 Y0   ; front to back pass
+G1 Y210 ; end of pass
+G1 Y0   ; front to back pass
+G1 Y210 ; end of pass
 G1 Y0   ; front to back pass
 G1 Y210 ; end of pass
 
 G1 Y105 ; return to center
 M400 ; Wait finishing movements
-@mpu6080 stop ; Stop recording
+@MPU6050 STOP ; Stop recording
 
 G1 Y0 ; keep moving to home Y
 

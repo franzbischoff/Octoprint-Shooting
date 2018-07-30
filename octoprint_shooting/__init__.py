@@ -19,6 +19,7 @@ from __future__ import absolute_import
 # import json
 import io
 import time
+
 import octoprint.plugin
 from lib.mpu6050 import mpu6050
 from octoprint.events import Events
@@ -38,9 +39,9 @@ class ShootingPlugin(octoprint.plugin.SettingsPlugin,
                      octoprint.plugin.StartupPlugin,
                      octoprint.plugin.BlueprintPlugin,
                      octoprint.plugin.EventHandlerPlugin):
-
-    capturing_vibration=False
-    script_file="vibration_test_1"
+    capturing_vibration = False
+    script_file = "vibration_test_1"
+    mpu = None
 
     # ~~ SettingsPlugin mixin
 
@@ -117,13 +118,16 @@ class ShootingPlugin(octoprint.plugin.SettingsPlugin,
 
     def atcommand_handler_hook(self, comm, phase, command, parameters, tags=None, *args, **kwargs):
 
+        command = command.upper()
+        parameters = parameters.upper()
+
         self._logger.info("Command received {command}.".format(command=command))
 
-        if command == "start":
+        if command == "START":
             self.start_gcode(self.script_file + ".gcode")
             return
 
-        if command != "MPU6080":
+        if command != "MPU6050":
             return
 
         if parameters is None:
@@ -131,11 +135,11 @@ class ShootingPlugin(octoprint.plugin.SettingsPlugin,
 
         if "START" in parameters:
             self.start_capture_vibration()
-            self._logger.info("Parameter \"{}\" received.".format(parameters))  # todo: implement start mpu6080 method
+            self._logger.info("Parameter \"{}\" received.".format(parameters))  # todo: implement start mpu6050 method
 
         if "STOP" in parameters:
             self.stop_capture_vibration()
-            self._logger.info("Parameter \"{}\" received.".format(parameters))  # todo: implement stop mpu6080 method
+            self._logger.info("Parameter \"{}\" received.".format(parameters))  # todo: implement stop mpu6050 method
 
         if tags is None:
             tags = set()
@@ -186,19 +190,29 @@ class ShootingPlugin(octoprint.plugin.SettingsPlugin,
         file.close()
 
     def start_capture_vibration(self):
-        self.mpu = mpu6050(0x68, logger=self._logger, basefolder=self._basefolder)
+        if self.mpu:
+            self._logger.info("Previous instance of MPU6050 exists")
+            self.mpu.stop()
+            time.sleep(0.1)
+
+        self.mpu = mpu6050(0x68, logger=self._logger, basefolder=self.get_plugin_data_folder())
         self.mpu.start()
 
     def stop_capture_vibration(self):
         if self.mpu:
-            self.mpu.capturingData = False
+            self._logger.info("Stopping instance of MPU6050")
+            self.mpu.stop()
 
+        time.sleep(0.2)
+        self._logger.info("Deleting MPU6050")
+        del self.mpu
 
     def update_ui(self):
         self.update_ui_current_temperature()
 
     def update_ui_current_temperature(self):
         self._plugin_manager.send_plugin_message(self._identifier, dict(sensor_data=self.temperature_sensor_data))
+
 
 # If you want your plugin to be registered within OctoPrint under a different name than what you defined in setup.py
 # ("OctoPrint-PluginSkeleton"), you may define that here. Same goes for the other metadata derived from setup.py that

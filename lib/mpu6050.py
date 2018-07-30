@@ -20,6 +20,7 @@ Code based on:
 
 import csv
 import ctypes
+import sys
 import threading
 import time
 
@@ -32,8 +33,15 @@ class mpu6050(threading.Thread):
     address = None
     bus = None
     capturingData = False
-    logger=None
-    basefolder="."
+    logger = None
+    basefolder = "."
+    axis = ["X", "Y", "Z", "GX", "GY", "GZ"]  #
+    x_accel_offset = 2354
+    y_accel_offset = 640
+    z_accel_offset = 1779
+    x_gyro_offset = 15
+    y_gyro_offset = 46
+    z_gyro_offset = -25
 
     # Scale Modifiers
     ACCEL_SCALE_MODIFIER_2G = 16384.0
@@ -48,6 +56,7 @@ class mpu6050(threading.Thread):
 
     # Registers defines
     INT_ENABLE_DATA_RDY_EN = 0x01
+    INT_ENABLE_PLL_RDY_INT = 0x02
     INT_ENABLE_I2C_MST_EN = 0x08
     INT_ENABLE_FIFO_OFLOW_INT = 0x10
 
@@ -159,19 +168,55 @@ class mpu6050(threading.Thread):
         self.wake_up()
         self.logger = logger
         if self.basefolder is not None:
-            self.basefolder=basefolder
+            self.basefolder = basefolder
 
         # set up thread
+
         threading.Thread.__init__(self)
         self.name = "MPU6050 Module"
 
-        self.log("__init__")
+        thread_count = threading.active_count()
+        if (thread_count > 1):
+            self.log_debug("Ghost thread around... (%d)" % thread_count)
+
+    def __del__(self):
+        self.log_debug("GC: MPU6080")
 
     def log(self, message):
         if self.logger is None:
             print(message)
         else:
             self.logger.info(message)
+
+    def log_debug(self, message):
+        if self.logger is None:
+            print("DEBUG: " + message)
+        else:
+            self.logger.debug(message)
+
+    def log_warning(self, message):
+        if self.logger is None:
+            print("WARNING: " + message)
+        else:
+            self.logger.warning(message)
+
+    def log_exception(self, message):
+        if self.logger is None:
+            print("EXCEPTION: " + message)
+        else:
+            self.logger.exception(message)
+
+    def log_error(self, message):
+        if self.logger is None:
+            print("ERROR: " + message)
+        else:
+            self.logger.error(message)
+
+    def log_critical(self, message):
+        if self.logger is None:
+            print("CRITICAL: " + message)
+        else:
+            self.logger.critical(message)
 
     def run(self):
         self.log("Starting " + self.name)
@@ -186,102 +231,175 @@ class mpu6050(threading.Thread):
         if not self.capturingData:
             return
 
-        self.log("Opening logfile2")
+        self.log_debug("Opening logfile")
 
-        packet_size = 12  # 2 for each GX GY GZ X Y Z
+        if "GX" in self.axis:
+            capture_gyro = True  # 2 for each GX GY GZ X Y Z
+        else:
+            capture_gyro = False  # 2 for each X Y Z
+
+        if capture_gyro:
+            packet_size = 12
+        else:
+            packet_size = 6
+
         log_file = self.basefolder + "/mpu6050_" + time.strftime("%Y%m%d-%H%M%S", time.localtime()) + ".csv"
 
         log_fd = open(log_file, 'wb')
         csv_writer = csv.writer(log_fd, delimiter=',', quotechar='|', quoting=csv.QUOTE_MINIMAL)
 
-        self.log("Logfile opened")
+        self.log_debug("Logfile opened")
 
         # FIFO stuff
         self.reset_user_ctrl_FIFO()  # reset FIFO
         self.set_int_enable(self.INT_ENABLE_FIFO_OFLOW_INT)  # interrupt when data overflow
         self.set_FIFO_config(self.FIFO_EN_ACCEL_BIT, 1)  # use FIFO for accel
-        self.set_FIFO_config(self.FIFO_EN_ZG_BIT, 1)  # use FIFO for Gyro Z
-        self.set_FIFO_config(self.FIFO_EN_YG_BIT, 1)  # use FIFO for Gyro Y
-        self.set_FIFO_config(self.FIFO_EN_XG_BIT, 1)  # use FIFO for Gyro X
+
+        if capture_gyro:
+            self.set_FIFO_config(self.FIFO_EN_ZG_BIT, 1)  # use FIFO for Gyro Z
+            self.set_FIFO_config(self.FIFO_EN_YG_BIT, 1)  # use FIFO for Gyro Y
+            self.set_FIFO_config(self.FIFO_EN_XG_BIT, 1)  # use FIFO for Gyro X
+        else:
+            self.set_FIFO_config(self.FIFO_EN_ZG_BIT, 0)  # use FIFO for Gyro Z
+            self.set_FIFO_config(self.FIFO_EN_YG_BIT, 0)  # use FIFO for Gyro Y
+            self.set_FIFO_config(self.FIFO_EN_XG_BIT, 0)  # use FIFO for Gyro X
+
         self.set_user_ctrl_FIFO_enable()  # enable using FIFO
 
         # Your offsets:	2348	635  	1776	 54	  49	 -27
         #                acelX acelY acelZ giroX giroY giroZ
         # other configs
-        self.set_x_accel_offset(2354)
-        self.set_y_accel_offset(640)
-        self.set_z_accel_offset(1779)
-        self.set_x_gyro_offset(15)
-        self.set_y_gyro_offset(46)
-        self.set_z_gyro_offset(-25)
+        self.set_x_accel_offset(self.x_accel_offset)
+        self.set_y_accel_offset(self.y_accel_offset)
+        self.set_z_accel_offset(self.z_accel_offset)
+        self.set_x_gyro_offset(self.x_gyro_offset)
+        self.set_y_gyro_offset(self.y_gyro_offset)
+        self.set_z_gyro_offset(self.z_gyro_offset)
         self.set_accel_range(self.ACCEL_RANGE_2G)  # set 2G for maximal sensibility
         self.set_gyro_range(self.GYRO_RANGE_250DEG)  # set 250DEG for maximal sensibility
         self.set_DLF_mode(self.DLPF_BW_44)  # digital low-pass filter
-        self.set_rate(10)  # (1khz / 10) = 100 hz
 
-        start_time = time.clock()
+        if capture_gyro:
+            csv_writer.writerow(["Time", "X", "Y", "Z", "GX", "GY", "GZ"])
+            self.set_rate(1000 / 100)  # (1khz / 10) = 100 hz
+        else:
+            csv_writer.writerow(["Time", "X", "Y", "Z"])
+            self.set_rate(1000 / 100)  # (1khz / 5) = 200 hz
 
-        self.log("Begin while")
+        start_time = time.time()
+        packet_count = 0
+        packet_loss = 0
+
+        self.log_debug("Begin while")
 
         while self.capturingData:
-            FIFO_count = self.get_FIFO_count()
-            mpu_int_status = self.get_int_status()
+            try:
+                FIFO_count = self.get_FIFO_count()
+                mpu_int_status = self.get_int_status()
 
-            # If overflow is detected by status or fifo count we want to reset
-            if (FIFO_count == 1024) or (mpu_int_status & self.INT_ENABLE_FIFO_OFLOW_INT):
-                self.reset_user_ctrl_FIFO()
-                self.log('OVERFLOW: FIFO count: ' + str(FIFO_count) + ' Int: ' + str(mpu_int_status))
-            else:
-                while FIFO_count < packet_size:
-                    self.log('FIFO count: ' + str(FIFO_count))
+                while self.capturingData and FIFO_count < packet_size and not (
+                    mpu_int_status & self.INT_ENABLE_FIFO_OFLOW_INT):
+                    # self.log_debug("WAIT: FIFO count: %s Interrupt: %s" % (FIFO_count, mpu_int_status))
                     FIFO_count = self.get_FIFO_count()
+                    mpu_int_status = self.get_int_status()
 
-                while FIFO_count > packet_size:
-                    # self._logger.info('FIFO count2: ' + str(FIFO_count))
-                    FIFO_buffer = self.get_FIFO_bytes(packet_size)
-                    acc_x = ctypes.c_int16((FIFO_buffer[0] << 8) + FIFO_buffer[1]).value
-                    acc_y = ctypes.c_int16((FIFO_buffer[2] << 8) + FIFO_buffer[3]).value
-                    acc_z = ctypes.c_int16((FIFO_buffer[4] << 8) + FIFO_buffer[5]).value
-                    acc_x /= self.ACCEL_SCALE_MODIFIER_2G
-                    acc_y /= self.ACCEL_SCALE_MODIFIER_2G
-                    acc_z /= self.ACCEL_SCALE_MODIFIER_2G
-                    acc_x *= self.GRAVITIY_MS2
-                    acc_y *= self.GRAVITIY_MS2
-                    acc_z *= self.GRAVITIY_MS2
-                    gyro_x = ctypes.c_int16((FIFO_buffer[6] << 8) + FIFO_buffer[7]).value
-                    gyro_y = ctypes.c_int16((FIFO_buffer[8] << 8) + FIFO_buffer[9]).value
-                    gyro_z = ctypes.c_int16((FIFO_buffer[10] << 8) + FIFO_buffer[11]).value
-                    gyro_x /= self.GYRO_SCALE_MODIFIER_250DEG
-                    gyro_y /= self.GYRO_SCALE_MODIFIER_250DEG
-                    gyro_z /= self.GYRO_SCALE_MODIFIER_250DEG
+                # If overflow is detected by status or fifo count we want to reset
+                if (FIFO_count > 1024) or (mpu_int_status & self.INT_ENABLE_FIFO_OFLOW_INT):
+                    self.reset_user_ctrl_FIFO()
+                    self.log_warning("OVERFLOW: FIFO count: %s Interrupt: %s, FIFO blow %s" % (
+                        FIFO_count, mpu_int_status, FIFO_count > 1024))
+                    packet_loss += FIFO_count / packet_size
+                elif mpu_int_status & self.INT_ENABLE_DATA_RDY_EN and (FIFO_count % packet_size) is 0:
+                    while self.capturingData and FIFO_count > packet_size:
+                        packet_count += 1
+                        # self.log_debug("READING: FIFO count: %s Interrupt: %s" % (FIFO_count, mpu_int_status))
+                        FIFO_buffer = self.get_FIFO_bytes(packet_size)
+                        # self.log_debug("READING 0")
+                        acc_x = ctypes.c_int16((FIFO_buffer[0] << 8) + FIFO_buffer[1]).value
+                        acc_y = ctypes.c_int16((FIFO_buffer[2] << 8) + FIFO_buffer[3]).value
+                        acc_z = ctypes.c_int16((FIFO_buffer[4] << 8) + FIFO_buffer[5]).value
+                        acc_x /= self.ACCEL_SCALE_MODIFIER_2G
+                        acc_y /= self.ACCEL_SCALE_MODIFIER_2G
+                        acc_z /= self.ACCEL_SCALE_MODIFIER_2G
+                        acc_x *= self.GRAVITIY_MS2
+                        acc_y *= self.GRAVITIY_MS2
+                        acc_z *= self.GRAVITIY_MS2
 
-                    self.log('X: %3.5f Y: %3.5f Z: %3.5f, GX: %3.5f, GY: %3.5f, GZ: %3.5f' %
-                                      (acc_x, acc_y, acc_z, gyro_x, gyro_y, gyro_z))
+                        delta_time = (time.time() - start_time)
 
-                    delta_time = (time.clock() - start_time) * 10
-                    data_concat = [
-                        '%.3f' % delta_time,
-                        '%.5f' % acc_x,
-                        '%.5f' % acc_y,
-                        '%.5f' % acc_z,
-                        '%.5f' % gyro_x,
-                        '%.5f' % gyro_y,
-                        '%.5f' % gyro_z
-                    ]
-                    csv_writer.writerow(data_concat)
+                        if capture_gyro:
+                            gyro_x = ctypes.c_int16((FIFO_buffer[6] << 8) + FIFO_buffer[7]).value
+                            gyro_y = ctypes.c_int16((FIFO_buffer[8] << 8) + FIFO_buffer[9]).value
+                            gyro_z = ctypes.c_int16((FIFO_buffer[10] << 8) + FIFO_buffer[11]).value
+                            gyro_x /= self.GYRO_SCALE_MODIFIER_250DEG
+                            gyro_y /= self.GYRO_SCALE_MODIFIER_250DEG
+                            gyro_z /= self.GYRO_SCALE_MODIFIER_250DEG
 
-                    FIFO_count -= packet_size
+                            if packet_count % 50 is 0:
+                                self.log_debug(
+                                    "Time: %3.5f Packets: %s Loss: %s X: %3.5f Y: %3.5f Z: %3.5f, GX: %3.5f, GY: %3.5f, GZ: %3.5f" % (
+                                        delta_time, packet_count, packet_loss,
+                                        acc_x, acc_y, acc_z, gyro_x, gyro_y, gyro_z))
+                        elif packet_count % 50 is 0:
+                            self.log_debug("Time: %3.5f Packets: %s Loss: %s X: %3.5f Y: %3.5f Z: %3.5f" % (
+                                delta_time, packet_count, packet_loss, acc_x, acc_y, acc_z))
 
-                    # safety exit if more than 60 seconds recording
-                    if(delta_time > 60):
-                        self.capturingData=False
+                        if capture_gyro:
+                            data_concat = [
+                                "%.3f" % delta_time,
+                                "%.5f" % acc_x,
+                                "%.5f" % acc_y,
+                                "%.5f" % acc_z,
+                                "%.5f" % gyro_x,
+                                "%.5f" % gyro_y,
+                                "%.5f" % gyro_z
+                            ]
+                        else:
+                            data_concat = [
+                                "%.3f" % delta_time,
+                                "%.5f" % acc_x,
+                                "%.5f" % acc_y,
+                                "%.5f" % acc_z
+                            ]
+
+                        csv_writer.writerow(data_concat)
+
+                        if FIFO_count < packet_size:
+                            FIFO_count = 0
+                        else:
+                            FIFO_count -= packet_size
+
+                        # safety exit if more than 5 minutes recording
+                        if delta_time > 300:
+                            self.log_warning("Timeout")
+                            self.capturingData = False
+
+            except (IOError) as e:
+                self.log_warning("Exception: " + str(e))
+                self.reset_user_ctrl_FIFO()
+                packet_loss += FIFO_count / packet_size
+            except (RuntimeError, TypeError, NameError) as e:
+                self.log_exception("Exception: " + str(e))
+                if log_fd:
+                    log_fd.close()
+                self.capturingData = False
+                self.log_debug("Dirty Exit")
+                raise
+            except:
+                self.log_exception("Unexpected error: " + str(sys.exc_info()))
+                if log_fd:
+                    log_fd.close()
+                self.capturingData = False
+                self.log_debug("Dirty Exit")
+                raise
 
         if log_fd:
             log_fd.close()
 
+        self.log_debug("Clean Exit")
 
     def stop(self):
-        self.capturingData=False
+        self.capturingData = False
 
     # Core bit and byte operations
     def read_bit(self, address, bit_position):
@@ -337,12 +455,9 @@ class mpu6050(threading.Thread):
         high = self.bus.read_byte_data(self.address, register)
         low = self.bus.read_byte_data(self.address, register + 1)
 
-        value = (high << 8) + low
+        value = ctypes.c_uint8((high << 8) | low).value
 
-        if (value >= 0x8000):
-            return -((65535 - value) + 1)
-        else:
-            return value
+        return value
 
     # MPU-6050 Methods
     def set_rate(self, divider):
@@ -409,15 +524,14 @@ class mpu6050(threading.Thread):
         self.bus.write_byte_data(self.address, self.ZG_OFFS_USRL,
                                  ctypes.c_int8(offset).value)
 
-    def get_FIFO_bytes(self, FIFO_count):
+    def get_FIFO_bytes(self, FIFO_count):  # @todo: fix reading timeout
         """Reads the FIFO buffer.
 
         Returns a list of bytes with the data on FIFO buffer.
         """
         return_list = list()
         for index in range(0, FIFO_count):
-            return_list.append(
-                self.bus.read_byte_data(self.address, self.FIFO_R_W))
+            return_list.append(self.bus.read_byte_data(self.address, self.FIFO_R_W))
         return return_list
 
     def get_int_enable(self):
@@ -483,7 +597,7 @@ class mpu6050(threading.Thread):
 
         Returns the temperature in degrees Celcius.
         """
-        raw_temp = self.read_i2c_word(self.TEMP_OUT0)
+        raw_temp = ctypes.c_int16(self.read_i2c_word(self.TEMP_OUT0))
 
         # Get the actual temperature using the formule given in the
         # MPU-6050 Register Map and Descriptions revision 4.2, page 30
@@ -534,9 +648,9 @@ class mpu6050(threading.Thread):
         If g is False, it will return the data in m/s^2
         Returns a dictionary with the measurement results.
         """
-        x = self.read_i2c_word(self.ACCEL_XOUT0)
-        y = self.read_i2c_word(self.ACCEL_YOUT0)
-        z = self.read_i2c_word(self.ACCEL_ZOUT0)
+        x = ctypes.c_int16(self.read_i2c_word(self.ACCEL_XOUT0))
+        y = ctypes.c_int16(self.read_i2c_word(self.ACCEL_YOUT0))
+        z = ctypes.c_int16(self.read_i2c_word(self.ACCEL_ZOUT0))
 
         accel_scale_modifier = None
         accel_range = self.read_accel_range(True)
@@ -550,7 +664,7 @@ class mpu6050(threading.Thread):
         elif accel_range == self.ACCEL_RANGE_16G:
             accel_scale_modifier = self.ACCEL_SCALE_MODIFIER_16G
         else:
-            self.log(
+            self.log_error(
                 "Unkown range - accel_scale_modifier set to self.ACCEL_SCALE_MODIFIER_2G"
             )
             accel_scale_modifier = self.ACCEL_SCALE_MODIFIER_2G
@@ -608,9 +722,9 @@ class mpu6050(threading.Thread):
 
         Returns the read values in a dictionary.
         """
-        x = self.read_i2c_word(self.GYRO_XOUT0)
-        y = self.read_i2c_word(self.GYRO_YOUT0)
-        z = self.read_i2c_word(self.GYRO_ZOUT0)
+        x = ctypes.c_int16(self.read_i2c_word(self.GYRO_XOUT0))
+        y = ctypes.c_int16(self.read_i2c_word(self.GYRO_YOUT0))
+        z = ctypes.c_int16(self.read_i2c_word(self.GYRO_ZOUT0))
 
         gyro_scale_modifier = None
         gyro_range = self.read_gyro_range(True)
@@ -624,7 +738,7 @@ class mpu6050(threading.Thread):
         elif gyro_range == self.GYRO_RANGE_2000DEG:
             gyro_scale_modifier = self.GYRO_SCALE_MODIFIER_2000DEG
         else:
-            self.log(
+            self.log_error(
                 "Unkown range - gyro_scale_modifier set to self.GYRO_SCALE_MODIFIER_250DEG"
             )
             gyro_scale_modifier = self.GYRO_SCALE_MODIFIER_250DEG
@@ -643,9 +757,9 @@ class mpu6050(threading.Thread):
 
         return [accel, gyro, temp]
 
-if __name__ == "__main__":
-    mpu = mpu6050(0x68)
 
+if __name__ == "__main__":
+    mpu = mpu6050(0x68, basefolder=".")
     mpu.start()
-    time.sleep(5)
-    mpu.capturingData=False
+    time.sleep(300)
+    mpu.capturingData = False
